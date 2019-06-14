@@ -31,16 +31,16 @@ from timetable import Timetable
 import math
 from copy import deepcopy
 import csv
-
+import time
 
 class TimeTableGenerator(object):
-    WEIGHT_DAY_OF_WEEK = 1.15
-    WEIGHT_PERIOD_OF_DAY = 1.25
-    WEIGHT_SIZE_OF_CLASSROOM = 1.1
-    WEIGHT_SECTION_LECTURES = 1.3
+    WEIGHT_DAY_OF_WEEK = 1.2
+    WEIGHT_PERIOD_OF_DAY = 2
+    WEIGHT_SIZE_OF_CLASSROOM = 1.2
+    WEIGHT_SECTION_LECTURES = 1.25
     WEIGHT_LECTURER_LECTURES = 1.25
-    WEIGHT_OTHER_ROOMS = 1.15
-    WEIGHT_LECTURES_ON_DAY = 1.25
+    WEIGHT_OTHER_ROOMS = 2
+    WEIGHT_LECTURES_ON_DAY = 1.75
 
     TOTAL_WEIGHT = WEIGHT_DAY_OF_WEEK + WEIGHT_PERIOD_OF_DAY+WEIGHT_SIZE_OF_CLASSROOM+WEIGHT_SECTION_LECTURES+\
         WEIGHT_LECTURER_LECTURES + WEIGHT_OTHER_ROOMS + WEIGHT_LECTURES_ON_DAY
@@ -72,7 +72,8 @@ class TimeTableGenerator(object):
 
     #Example the weights for ['mon','tues','wed','thurs','fri'] are [1,1.5,2,1.5,1]
         MAX_WEIGHT = 2
-        DIFF_FACTOR = 0.5
+        BACKWARD_DIFF_FACTOR = 0.15
+        FORWARD_DIFF_FACTOR = 0.5
         length = len(days)
         weights = [None] * length #fill the list with nones
 
@@ -81,16 +82,16 @@ class TimeTableGenerator(object):
             weights[mid] = MAX_WEIGHT #arbirary constant for now
 
             for i in range(0,mid):
-                weights[i] = MAX_WEIGHT - (mid-(i))*DIFF_FACTOR
-                weights[-(i+1)] = weights[i]
+                weights[i] = MAX_WEIGHT - (mid-(i))*BACKWARD_DIFF_FACTOR
+                weights[-(i+1)] = MAX_WEIGHT - (mid-(i))*FORWARD_DIFF_FACTOR
         else:
             mid = length//2
             weights[mid] = MAX_WEIGHT
             weights[mid-1] = MAX_WEIGHT
 
             for i in range(0,mid-1):
-                weights[i] = MAX_WEIGHT - (mid-(i+1))*DIFF_FACTOR
-                weights[-(i+1)] = weights[i]
+                weights[i] = MAX_WEIGHT - (mid-(i+1))*BACKWARD_DIFF_FACTOR
+                weights[-(i+1)] = MAX_WEIGHT - (mid-(i+1))*FORWARD_DIFF_FACTOR
         
         return weights
 
@@ -100,8 +101,8 @@ class TimeTableGenerator(object):
     #Give a higher priority to days in the middle 
     #Reduce the priority by 0.5 as we move away from the centre
         MAX_WEIGHT = 2
-        FORWARD_DIFF_FACTOR = 0.25
-        BACKWARD_DIFF_FACTOR = 0.15
+        FORWARD_DIFF_FACTOR = 1.5
+        BACKWARD_DIFF_FACTOR = 0.05
 
         length = len(days)
         weights = [None] * length #fill the list with nones
@@ -156,7 +157,7 @@ class TimeTableGenerator(object):
     @staticmethod
     def day_lectures_multiplier(lectures):
         MAX_WEIGHT = 2
-        DIFF_FACTOR = 0.15
+        DIFF_FACTOR = 0.1
 
         return MAX_WEIGHT - DIFF_FACTOR * (lectures//20)
 
@@ -177,13 +178,15 @@ class TimeTableGenerator(object):
         return self._timetable
 
     def generate_timetable(self):
+        count = 0
         for lecture in self._unscheduled:
             if self.schedule(lecture):
                 self._scheduled.append(lecture)
-                print('Scheduled')
+                print('Scheduled : ',len(self.scheduled),'  Out of  :  ',len(self.unscheduled))
                 #self._unscheduled.remove(lecture)
             else:
                 print('Failed to schedule')
+            count+=1
         return self._timetable
 
     def schedule(self, lecture):
@@ -198,6 +201,7 @@ class TimeTableGenerator(object):
                 return True
         else:
             # add after swapping
+            print('Schedule via swap')
             return self.schedule_via_swap(lecture)
 
     def schedule_via_swap(self, lecture):
@@ -336,9 +340,13 @@ class TimeTableGenerator(object):
         periods = self.timetable.periods(ttslot.day,ttslot.room)
         period = periods.index(ttslot)
 
-        period_priority = self.period_multipliers(periods)[period] *TimeTableGenerator.WEIGHT_PERIOD_OF_DAY
+        ####work around###################################
+        #############CHANGE
+        try:
+            period_priority = self.period_multipliers(periods)[period] *TimeTableGenerator.WEIGHT_PERIOD_OF_DAY
 
-
+        except IndexError:
+            period_priority = 1.55
         priority += period_priority
 
         #consider the difference in size between the classroom and the number of students
@@ -398,11 +406,16 @@ if __name__ == '__main__':
 
 
     timeslots = [
-        TimeSlot('8:00','10:00'),
-        TimeSlot('10:00','12:00'),
-        TimeSlot('12:00', '14:00'),
-        TimeSlot('14:00','16:00'),
-        TimeSlot('16:00','18:00')
+        TimeSlot('8:00','9:00'),
+        TimeSlot('9:00','10:00'),
+        TimeSlot('10:00','11:00'),
+        TimeSlot('11:00','12:00'),
+        TimeSlot('12:00', '13:00'),
+        TimeSlot('13:00', '14:00'),
+        TimeSlot('14:00','15:00'),
+        TimeSlot('15:00','16:00'),
+        TimeSlot('16:00','17:00'),
+        TimeSlot('17:00','18:00')
         ]
     
     
@@ -415,15 +428,19 @@ if __name__ == '__main__':
     rooms = []
     with open('/home/kumbong/Desktop/Software Engineering/hex-backend/objects/curriculum.csv', 'r') as csvFile:
         reader = csv.DictReader(csvFile, dialect='myDialect')
+        count = 0
         for row in reader:
             r = (dict(row))
             lecturer = Lecturer(r['Lecturer name'].strip(),r['Lecturer Id'].strip(),r['Lecturer Title'].strip())
             course = Course(r['Course name'].strip(),r['Department code'].strip(),r['Course code'].strip(),r['T'].strip(),r['P'].strip(),r['C'].strip(),r['Tutorial'].strip())
             section = Section(r['Section department'].strip(),r['Year'].strip(),r['Section code'].strip(),int(r['Class size'].strip()))
             c_item = CurriculumItem(section,course,lecturer)
-            lecture = Lecture(c_item,60)
+            if count%3:
+                lecture = Lecture(c_item,120)
+            else:
+                lecture = Lecture(c_item,60)
             lectures.append(lecture)
-
+            count+=1
     csvFile.close()
 
     with open('/home/kumbong/Desktop/Software Engineering/hex-backend/objects/rooms.csv', 'r') as csvFile:
@@ -434,56 +451,20 @@ if __name__ == '__main__':
             rooms.append(room)
     csvFile.close()
 
-    days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+    days = ['Monday','Tuesday','Wednesday','Thursday','Friday']
     day_tables = []
 
     for day in days:
         day_tables.append(DayTimetable(rooms,timeslots,day))
     timetable = Timetable(days,day_tables)
-#     #print(timetable)
-# #create a list of lectures to be scheduled
-#     lecturer = Lecturer('Benjamin Kommey',4564541,'Mr')
-#     #course = Course('Opearating Systems','COE 361')
 
-#     section = Section('ED CoE',25,3,'Electrical and Electronics Engineering','Computer Engineering')
-#     c_item = CurriculumItem(section,course,lecturer)
-
-#     lecture = Lecture(c_item,60)
-#     lectures = [lecture]
-
-#     lecturer = Lecturer('Yao Ming',4564541,'Mr')
-#     #course = Course('Control Systems','COE 63')
-
-#     section = Section('ED CoE',25,3,'Electrical and Electronics Engineering','Computer Engineering')
-#     #c_item = CurriculumItem(section,course,lecturer)
-
-#     lectures.append(Lecture(c_item,60))
-
-#     lecturer = Lecturer('J Yankey',4564541,'Mr')
-#     course = Course('Software Systems','COE 371')
-
-#     section = Section('ED CoE',25,3,'Electrical and Electronics Engineering','Computer Engineering')
-#     c_item = CurriculumItem(section,course,lecturer)
-
-#     lectures.append(Lecture(c_item,120))
-
-#     lecturer = Lecturer('Helle Rubie',4564541,'Mr')
-#     course = Course('Embedded Systems','COE 381')
-
-#     section = Section('ED CoE',25,3,'Electrical and Electronics Engineering','Computer Engineering')
-#     c_item = CurriculumItem(section,course,lecturer)
-
-#     lectures.append(Lecture(c_item,120))
-
-
-
-
-#create a timetable generator initialized to both
 
     generator = TimeTableGenerator(timetable,lectures)
 
   
     # #print(generator.unscheduled)
+    import time
+    start_time = time.time()
 
     generator.generate_timetable()
     
@@ -491,13 +472,7 @@ if __name__ == '__main__':
     print(len(generator.scheduled))
     print(len(generator.unscheduled))
     #print(generator.scheduled)
+    print((time.time() - start_time)/60)
 
 
-
-
-#create a timetable generate a timetable 
-
-
-
-#print the timetable
 
